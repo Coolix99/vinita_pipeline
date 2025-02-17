@@ -131,7 +131,7 @@ def register_images(vinita_root_dir, result_root_dir):
                     }
                     
                     # Write metadata
-                    write_JSON(image_folder_dir, "Image", metadata)
+                    write_JSON(image_folder_dir, "Image_"+key, metadata)
                     logger.info(f"Saved metadata for {image_name}")
 
 if __name__ == "__main__":

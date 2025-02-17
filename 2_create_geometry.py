@@ -1,5 +1,8 @@
 from zf_pf_geometry.pipeline import do_all
 
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
 if __name__ == "__main__":
     nuc_path="/home/max/Documents/02_Data/structured_data/structured_vinita/Nuclei"
     mask_path="/home/max/Documents/02_Data/structured_data/structured_vinita/Mask"

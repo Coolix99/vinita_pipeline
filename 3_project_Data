@@ -1,0 +1,145 @@
+import os
+import numpy as np
+import pyvista as pv
+import logging
+from scipy.spatial import cKDTree
+from tqdm import tqdm
+from zf_pf_geometry.utils import load_tif_image
+from simple_file_checksum import get_checksum
+from zf_pf_geometry.metadata_manager import should_process, write_JSON
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+def project_image_to_surface(surface, image):
+    """
+    Projects a 3D image onto a surface mesh.
+
+    Args:
+        surface (pv.PolyData): The surface mesh.
+        image (np.ndarray): The 3D image.
+
+    Returns:
+        pv.PolyData: Updated surface mesh with projected image data.
+    """
+    # Extract surface vertex coordinates
+    vertices = np.array(surface.points)
+
+    # Get nonzero voxel indices and values
+    nonzero_indices = np.argwhere(image > 0)  # (N, 3) indices
+    nonzero_values = image[nonzero_indices[:, 0], nonzero_indices[:, 1], nonzero_indices[:, 2]]
+
+    if nonzero_values.size == 0:
+        logger.warning("No nonzero pixels in the image. Skipping projection.")
+        return surface
+
+    # Build KDTree for nearest neighbor search
+    tree = cKDTree(vertices)
+
+    # Find nearest surface vertex for each nonzero voxel
+    nearest_vertex_ids = tree.query(nonzero_indices)[1]
+
+    # Compute max intensity per vertex
+    max_intensity = np.zeros(len(vertices))
+    np.maximum.at(max_intensity, nearest_vertex_ids, nonzero_values)
+
+    # Count pixels per vertex
+    pixel_count = np.zeros(len(vertices), dtype=int)
+    np.add.at(pixel_count, nearest_vertex_ids, 1)
+
+    # Add data to the surface mesh
+    surface["max_intensity"] = max_intensity
+    surface["pixel_count"] = pixel_count
+
+    return surface
+
+def process_geometry(geometry_dir, bre_dir, smoc_dir, output_dir):
+    """
+    Processes all geometry files by projecting images onto surfaces.
+
+    Args:
+        geometry_dir (str): Path to the geometry folder containing subfolders with `.vtk` files.
+        bre_dir (str): Path to the BRE images folder (each dataset in its own folder).
+        smoc_dir (str): Path to the Smoc images folder (each dataset in its own folder).
+        output_dir (str): Path to save the updated surfaces.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Find all subdirectories in geometry_dir
+    geometry_subfolders = [d for d in os.listdir(geometry_dir) if os.path.isdir(os.path.join(geometry_dir, d))]
+
+    for dataset_name in tqdm(geometry_subfolders, desc="Processing Surfaces", unit="dataset"):
+        dataset_path = os.path.join(geometry_dir, dataset_name)
+
+        # Find the .vtk file inside the dataset folder
+        vtk_files = [f for f in os.listdir(dataset_path) if f.endswith(".vtk")]
+        if not vtk_files:
+            logger.warning(f"No .vtk file found in {dataset_path}. Skipping.")
+            continue
+        surface_path = os.path.join(dataset_path, vtk_files[0])  # Assume only one .vtk per folder
+        # Define output path
+        output_path = os.path.join(output_dir, dataset_name)
+        os.makedirs(output_path, exist_ok=True)
+
+        # Check if processing is needed
+        bre_folder_path=os.path.join(bre_dir,dataset_name)
+        smoc_folder_path=os.path.join(smoc_dir,dataset_name)
+        res = should_process([dataset_path, bre_folder_path, smoc_folder_path], ['surface', 'Image', 'Image'], output_dir, "projected_data")
+       
+        if not res:
+            logger.info(f"Skipping {dataset_name}: No processing needed.")
+            continue
+
+        input_data, input_checksum = res
+
+        # Load surface
+        surface = pv.read(surface_path)
+
+       
+        # Load BRE and Smoc images
+        try:
+            bre_image = load_tif_image(bre_folder_path)
+            logger.info(f"Loaded BRE image for {dataset_name}.")
+        except Exception as e:
+            logger.error(f"Failed to load BRE image for {dataset_name}: {e}")
+            continue
+
+        try:
+            smoc_image = load_tif_image(smoc_folder_path)
+            logger.info(f"Loaded Smoc image for {dataset_name}.")
+        except Exception as e:
+            logger.error(f"Failed to load Smoc image for {dataset_name}: {e}")
+            continue
+
+        # Project image data onto surface
+        logger.info(f"Projecting BRE data for {dataset_name}.")
+        surface = project_image_to_surface(surface, bre_image)
+        
+        logger.info(f"Projecting Smoc data for {dataset_name}.")
+        surface = project_image_to_surface(surface, smoc_image)
+
+       
+        
+
+        surface.save(os.path.join(output_dir, dataset_name+ ".vtk"))
+        logger.info(f"Saved updated surface: {output_path}")
+
+        # Update metadata
+        updated_metadata = input_data["surface"]
+        updated_metadata["Projected Surface file name"] = dataset_name + ".vtk"
+        updated_metadata["Projected Surface checksum"] = get_checksum(output_path, algorithm="SHA1")
+
+        write_JSON(output_dir, "projected_data", updated_metadata)
+
+    logger.info("Projection processing completed.")
+
+if __name__ == "__main__":
+    # Define folder paths
+    geometry_dir = "/home/max/Documents/02_Data/structured_data/structured_vinita/Geometry"
+    bre_dir = "/home/max/Documents/02_Data/structured_data/structured_vinita/BRE"
+    smoc_dir = "/home/max/Documents/02_Data/structured_data/structured_vinita/Smoc"
+    output_dir = "/home/max/Documents/02_Data/structured_data/structured_vinita/Projected"
+
+    # Run processing
+    process_geometry(geometry_dir, bre_dir, smoc_dir, output_dir)
