@@ -87,7 +87,7 @@ def register_images(vinita_root_dir, result_root_dir):
 
                 channels={
                     "Smoc": smoc_img,
-                    "Nuclei": nuclei_img,
+                    "Nuclei": nuclei_img.astype(np.float64),
                     "BRE": BRE_img,
                     "Mask": mask
                 }
@@ -108,7 +108,7 @@ def register_images(vinita_root_dir, result_root_dir):
                     image_folder_dir=os.path.join(channel_dir,data_name)
                     os.makedirs(image_folder_dir, exist_ok=True)
 
-                    image_name = data_name+".tiff"
+                    image_name = data_name+".tif"
                     save_path = os.path.join(image_folder_dir, image_name)
                     
                     # Save as TIFF
