@@ -12,7 +12,7 @@ from zf_pf_geometry.metadata_manager import should_process, write_JSON
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-def project_image_to_surface(surface, image):
+def project_image_to_surface(surface, image,scale,name):
     """
     Projects a 3D image onto a surface mesh.
 
@@ -38,7 +38,7 @@ def project_image_to_surface(surface, image):
     tree = cKDTree(vertices)
 
     # Find nearest surface vertex for each nonzero voxel
-    nearest_vertex_ids = tree.query(nonzero_indices)[1]
+    nearest_vertex_ids = tree.query(nonzero_indices*scale)[1]
 
     # Compute max intensity per vertex
     max_intensity = np.zeros(len(vertices))
@@ -49,8 +49,8 @@ def project_image_to_surface(surface, image):
     np.add.at(pixel_count, nearest_vertex_ids, 1)
 
     # Add data to the surface mesh
-    surface["max_intensity"] = max_intensity
-    surface["pixel_count"] = pixel_count
+    surface[name+"_max_intensity"] = max_intensity
+    surface[name+"_pixel_count"] = pixel_count
 
     return surface
 
@@ -72,12 +72,6 @@ def process_geometry(geometry_dir, bre_dir, smoc_dir, output_dir):
     for dataset_name in tqdm(geometry_subfolders, desc="Processing Surfaces", unit="dataset"):
         dataset_path = os.path.join(geometry_dir, dataset_name)
 
-        # Find the .vtk file inside the dataset folder
-        vtk_files = [f for f in os.listdir(dataset_path) if f.endswith(".vtk")]
-        if not vtk_files:
-            logger.warning(f"No .vtk file found in {dataset_path}. Skipping.")
-            continue
-        surface_path = os.path.join(dataset_path, vtk_files[0])  # Assume only one .vtk per folder
         # Define output path
         output_path = os.path.join(output_dir, dataset_name)
         os.makedirs(output_path, exist_ok=True)
@@ -85,17 +79,17 @@ def process_geometry(geometry_dir, bre_dir, smoc_dir, output_dir):
         # Check if processing is needed
         bre_folder_path=os.path.join(bre_dir,dataset_name)
         smoc_folder_path=os.path.join(smoc_dir,dataset_name)
-        res = should_process([dataset_path, bre_folder_path, smoc_folder_path], ['surface', 'Image', 'Image'], output_dir, "projected_data")
+        res = should_process([dataset_path, bre_folder_path, smoc_folder_path], ['thickness', 'Image_BRE', 'Image_Smoc'], output_path, "projected_data")
        
         if not res:
             logger.info(f"Skipping {dataset_name}: No processing needed.")
             continue
 
         input_data, input_checksum = res
+        scale=np.array(input_data['thickness']['scale'])
 
         # Load surface
-        surface = pv.read(surface_path)
-
+        surface = pv.read(os.path.join(dataset_path,input_data['thickness']['Surface(Thickness) file name']))
        
         # Load BRE and Smoc images
         try:
@@ -114,23 +108,22 @@ def process_geometry(geometry_dir, bre_dir, smoc_dir, output_dir):
 
         # Project image data onto surface
         logger.info(f"Projecting BRE data for {dataset_name}.")
-        surface = project_image_to_surface(surface, bre_image)
-        
+        surface = project_image_to_surface(surface, bre_image,scale,'BRE')
+
         logger.info(f"Projecting Smoc data for {dataset_name}.")
-        surface = project_image_to_surface(surface, smoc_image)
+        surface = project_image_to_surface(surface, smoc_image,scale,'Smoc')
 
-       
-        
 
-        surface.save(os.path.join(output_dir, dataset_name+ ".vtk"))
+        surface.save(os.path.join(output_path, dataset_name+ ".vtk"))
         logger.info(f"Saved updated surface: {output_path}")
 
         # Update metadata
-        updated_metadata = input_data["surface"]
+        updated_metadata = input_data["thickness"]
         updated_metadata["Projected Surface file name"] = dataset_name + ".vtk"
+        updated_metadata['input_data_checksum'] = input_checksum
         updated_metadata["Projected Surface checksum"] = get_checksum(output_path, algorithm="SHA1")
 
-        write_JSON(output_dir, "projected_data", updated_metadata)
+        write_JSON(output_path, "projected_data", updated_metadata)
 
     logger.info("Projection processing completed.")
 
