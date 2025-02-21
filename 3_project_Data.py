@@ -7,52 +7,13 @@ from tqdm import tqdm
 from zf_pf_geometry.utils import load_tif_image
 from simple_file_checksum import get_checksum
 from zf_pf_geometry.metadata_manager import should_process, write_JSON
+from zf_pf_diffeo.project import project_image_to_surface
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-def project_image_to_surface(surface, image,scale,name):
-    """
-    Projects a 3D image onto a surface mesh.
 
-    Args:
-        surface (pv.PolyData): The surface mesh.
-        image (np.ndarray): The 3D image.
-
-    Returns:
-        pv.PolyData: Updated surface mesh with projected image data.
-    """
-    # Extract surface vertex coordinates
-    vertices = np.array(surface.points)
-
-    # Get nonzero voxel indices and values
-    nonzero_indices = np.argwhere(image > 0)  # (N, 3) indices
-    nonzero_values = image[nonzero_indices[:, 0], nonzero_indices[:, 1], nonzero_indices[:, 2]]
-
-    if nonzero_values.size == 0:
-        logger.warning("No nonzero pixels in the image. Skipping projection.")
-        return surface
-
-    # Build KDTree for nearest neighbor search
-    tree = cKDTree(vertices)
-
-    # Find nearest surface vertex for each nonzero voxel
-    nearest_vertex_ids = tree.query(nonzero_indices*scale)[1]
-
-    # Compute max intensity per vertex
-    max_intensity = np.zeros(len(vertices))
-    np.maximum.at(max_intensity, nearest_vertex_ids, nonzero_values)
-
-    # Count pixels per vertex
-    pixel_count = np.zeros(len(vertices), dtype=int)
-    np.add.at(pixel_count, nearest_vertex_ids, 1)
-
-    # Add data to the surface mesh
-    surface[name+"_max_intensity"] = max_intensity
-    surface[name+"_pixel_count"] = pixel_count
-
-    return surface
 
 def process_geometry(geometry_dir, bre_dir, smoc_dir, output_dir):
     """
