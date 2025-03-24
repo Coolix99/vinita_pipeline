@@ -34,7 +34,8 @@ if __name__ == "__main__":
     proj_dir = "/home/max/Documents/02_Data/structured_data/structured_vinita/Projected"
     
 #     plot_all_reference_meshes(maps_dir, scale_unit="µm")
-#     plot_all_reference_data(maps_dir, data_to_value_function_Smoc, scale_unit="µm",separate_windows=True)
+    plot_all_reference_data(maps_dir, data_to_value_function, scale_unit="µm",separate_windows=False)
+    plot_all_reference_data(maps_dir, data_to_value_function_Smoc, scale_unit="µm",separate_windows=False)
 
     temp_maps_dir = "/home/max/Documents/02_Data/structured_data/structured_vinita/Maps_temp"    
 #     show_temporal_mesh_evolution(os.path.join(temp_maps_dir,"Vinita_WT_Development"))
